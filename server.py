@@ -14,7 +14,7 @@ import pymongo
 def OOPS(*args):
 	s	= ' '.join(['OOPS:']+[str(x) for x in args])
 	print(s, file=sys.stderr)
-	return RuntimeError(s)
+	raise RuntimeError(s)
 
 class Mo:
 	def __init__(self, db='hetzner', table='vms'):
@@ -30,11 +30,16 @@ class Mo:
 		assert res
 		return res
 
+	def mix(self, name, **kw):
+		res	= self.tb.update_one({'name':name}, {'$set': kw})
+		assert res
+		return res
+
 	def check(self, name):
 		return self.tb.find_one({'name':name})
 
 	def get(self, name):
-		res	= check(name)
+		res	= self.check(name)
 		assert res
 		return res
 
@@ -78,7 +83,7 @@ class Server:
 	def cli(self):
 		if self.__cli:
 			return self.__cli
-		if len(self.token)!=64:	raise OOPS('no token', len(self.token))
+		if len(self.token)!=64:		OOPS('no token', len(self.token))
 		self.__cli	= hcloud.Client(self.token,
 						application_name=self.__APPNAME,
 						application_version=self.__APPVERS,
@@ -92,8 +97,7 @@ class Server:
 
 	def byname(self, name):
 		sv	= self.cli.servers.get_by_name(name)
-		if self.tag not in sv.labels:
-			raise OOPS('server not managed:', name)
+		if self.tag not in sv.labels:	OOPS('server not managed:', name)
 		return sv
 
 	def cache(self, what, cb):
@@ -235,9 +239,9 @@ class Server:
 		name [dc [os [type]]]:	create a server
 		The defaults are defined in the api-key
 		"""
-		name	= self.tag+name
-		if	self.mo.get(name):	OOPS('known server', name)
-		if	self.cli.servers.get_by_name(name): OOPS('remote known server', name)
+		if not name.startswith(self.tag):		OOPS('server name must begin with', self.tag)
+		if	self.mo.check(name):			OOPS('known server', name)
+		if	self.cli.servers.get_by_name(name):	OOPS('remote known server', name)
 		self.mo.set(name, {'stage':'new'})
 		ok	= self.cli.servers.create(name,
 						image=hcloud.images.domain.Image(name=os or self.__os),
@@ -251,8 +255,16 @@ class Server:
 			data.append(self.action(a))
 		sv	= ok.server
 		assert sv
-		self.sync(name, sv, pw=ok.root_password, stage=created, act=data)
+		self.sync(name, sv, pw=ok.root_password, stage='created', act=data)
 		yield "ok"
+
+	def cmd_console(self, name):
+		"""
+		name:	update the console information
+		"""
+		con	= self.cli.servers.get_by_name(name).request_console()
+		self.mo.mix(name, url=con.wss_url, auth=con.password)
+		yield con.wss_url+'#'+con.password
 
 	def cmd_help(self, cmd=None):
 		"""
@@ -275,8 +287,8 @@ class Server:
 		return getattr(self, 'cmd_'+cmd, wrong)(*args)
 
 def main(arg0,cmd,*args):
-	lb	= Server(tag='vnc', arg0=arg0, db='vnc', table='sess')
-	for a in lb.cmd(cmd, *args):
+	sv	= Server(tag='vnc', arg0=arg0, db='vnc', table='sess')
+	for a in sv.cmd(cmd, *args):
 		print(a)
 	return 0
 
