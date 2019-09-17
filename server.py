@@ -281,14 +281,18 @@ class Server:
 				c	= getattr(self, a).__doc__.strip().split('\n',2)
 				yield (a[4:]+' '+c[0])
 
-	def cmd(self, cmd, *args):
+	def cmd(self, *args):
+		if not args:
+			OOPS('missing command, try: help')
+		cmd	= args[0]
+		args	= args[1:]
 		def wrong(*args):
-			yield 'unknown command: '+cmd+' (try: help)'
+			OOPS('unknown command: '+cmd+' (try: help)')
 		return getattr(self, 'cmd_'+cmd, wrong)(*args)
 
-def main(arg0,cmd,*args):
+def main(arg0,*args):
 	sv	= Server(tag='vnc', arg0=arg0, db='vnc', table='sess')
-	for a in sv.cmd(cmd, *args):
+	for a in sv.cmd(*args):
 		print(a)
 	return 0
 
