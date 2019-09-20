@@ -226,13 +226,15 @@ class Server:
 			old[a]	= kw[a]
 		self.mo.set(name, old)
 
-	def cmd_sync(self, name):
+	def cmd_sync(self, name=None):
 		"""
-		name:	sync local from remote data
+		[name]:	sync local from remote data
+			Without name: sync all known
 		"""
-		sv	= self.byname(name)
-		self.sync(name, sv)
-		yield "ok"
+		for a in [name] if name else self.mo.list():
+			sv	= self.byname(a)
+			self.sync(a, sv)
+			yield a
 
 	def cmd_create(self, name, dc='fsn1-dc14', os='ubuntu-18.04', typ='cx11'):
 		"""
