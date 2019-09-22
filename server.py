@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
+#
+# This Works is placed under the terms of the Copyright Less License,
+# see file COPYRIGHT.CLL.  USE AT OWN RISK, ABSOLUTELY NO WARRANTY.
+#
+# This is not meant to be pretty.
+# It is meant to be easy to use.
+#
+# Have a local MongoDB running.
+# Do one time: ./server.py setup
+#
+# Afterwards you can do things like:
+# ./server.py help		# see all the commands
+# ./server.py create vm-1	# create a VM (warning! This costs money!)
+# ./server.py settag some-vm	# mark some-vm to be managed by this
+# ./server.py deltag vm-1	# make VM independent of this here
+# ./server.py sync		# pull in the VM status in our DB
+
 
 _APPNAME='hcloud-console CLI'
 _VERSION='0.0.0'
-_ENVNAME='HCLOUD_CONSOLE_CONF'
-_DEFCONF='~/.hcloud-console.conf'
+_ENVNAME='HCLOUD_CONSOLE_CONF'		# ENV-var to take config from
+_DEFCONF='~/.hcloud-console.conf'	# default config location
 
 import os
 import sys
@@ -14,6 +31,9 @@ import pymongo
 
 
 def OOPS(*args):
+	"""
+	Housten .. you know the rest
+	"""
 	s	= ' '.join(['OOPS:']+[str(x) for x in args])
 	print(s, file=sys.stderr)
 	raise RuntimeError(s)
@@ -24,6 +44,12 @@ import base64
 import hashlib
 import secrets
 def scramble(s, scramble):
+	"""
+	A weird scrambler/descrambler.
+
+	As we cannot see that scrambled values are OK,
+	use gzip to protect their value.  Sort of.
+	"""
 	if s is None:
 		return None
 	if not scramble:
@@ -42,7 +68,7 @@ def scramble(s, scramble):
 
 class Mongo:
 	"""
-	Driver for MongoDB
+	Wrapper to MongoDB
 	"""
 
 	@classmethod
@@ -101,10 +127,16 @@ def props(o, props):
 
 
 def confirm(q):
+	"""
+	Easy confirmation question
+	"""
 	return 'y' == input(q+' [y/N]? ')
 
 
 def inputn(a, b, q):
+	"""
+	Enter an integer in the range a..b
+	"""
 	x	= input(q+' (RETURN for no change)? ')
 	if x=='':	return ''
 	try:
@@ -115,6 +147,9 @@ def inputn(a, b, q):
 
 
 def select(entries):
+	"""
+	Let the user select some values
+	"""
 	while 1:
 		n	= []
 		for s in tabular(entries, head=True, countstart=1, countwidth=2, countsep=') '):
@@ -242,36 +277,83 @@ def tabular(it, head=True, headdash=False, datadash=True, footdash=False, lineda
 
 
 class Config:
+	"""
+	Centralized data driven configuration
+	"""
+
 	drivers	= { 'mongo':Mongo }
+
+
 	CONF =	{
 		'token':	['API-token',		'Create one in project keys at hetzner.cloud'],
 		'dc':		['Datacenter',		'Hetzner Datacenter to create VM in'],
 		'typ':		['Default type',	 'VM type.  Example: cx11'],
 		'os':		['Default OS',		'VM OS.  Example: ubuntu-18.04'],
 		'label':	['VM label',		'Label to mark VM is managed.  Example: managed'],
-		'prefix':	['VM name prefix',	'created VMs get this prefix.  Example: m-'],
+		'prefix':	['VM name prefix',	'managed VMs prefix, - for none.  Example: m-'],
 		'driver':	['Database driver',	'Currently there only is: mongo'],
 		'console':	['Console baseurl',	'URL prefix to print for console, - for none'],
 		'complete':	['Complete?',		'leave empty if Setup is not complete'],
 		}
 
+	SCRAMBLED=['token']	# obfuscate these config values
+
+	def hide_token(self):
+		return '[token not shown to keep it secure]'
+
+
+	def get_console(self, c):
+		return '' if c=='-' else c
+
+	def get_prefix(self, c):
+		return '' if c=='-' else c
+
+
+	def sel_dc(self, io):
+		if io and self.ok('token'):
+			yield from io.cmd_dc()
+
+	def sel_typ(self, io):
+		if io and self.ok('token', 'dc'):
+			yield from io.server_types(self._conf['dc'])
+
+	def sel_os(self, io):
+		if io and self.ok('token'):
+			yield from io.cmd_images()
+
+	def sel_driver(self, io):
+		for a in self.drivers:
+			yield a
+
+	def sel_ref(self, io):
+		return conf['label']
+
+	def sel_complete(self, io):
+		yield {'name':None, 'complete':'No'}
+		yield {'name':'ok', 'complete':'Yes'}
+
+
 	def confs(self):
+		"""
+		calculate self._confs to include all sub-configs, too
+		"""
 		self._confs	= {}
 		for a in self.CONF:
 			self._confs[a]	= self.CONF[a]
 			p	= getattr(self, 'conf_'+a, None)
 			if p:
 				p(a)
-	
+
 	def conf_driver(self, i):
 		"""
-		Proxy to join driver config with our config
+		join driver config with our config
 		"""
 		if i not in self._conf:		return
 		d	= self._conf[i]
 		if d not in self.drivers:	return
 		for k,v in self.drivers[d].conf().items():
 			self._confs[d+'-'+k]	= v
+
 
 	def __init__(self, config=None, env=_ENVNAME, **kw):
 		self.changed	= False
@@ -312,43 +394,69 @@ class Config:
 		return run
 
 	def save(self):
+		"""
+		write config as JSON
+		"""
 		with open(self.filename+'.tmp', "w+") as f:
 			json.dump(self.scramble(copy.copy(self._conf)), f)
 		os.rename(self.filename+'.tmp', self.filename)
 		self.changed	= False
 
 	def scramble(self, conf):
+		"""
+		Obfuscate config values a bit
+		"""
 		return self._scramble(True, conf)
 
 	def unscramble(self, conf):
+		"""
+		Deobfuscate config
+		"""
 		return self._scramble(False, conf)
 
 	def _scramble(self, mode, conf):
-		for a in ['token']:
+		"""
+		Do the scrambling/unscrambling
+		"""
+		for a in self.SCRAMBLED:
 			if a in conf and conf[a] is not None:
 				conf[a]	= scramble(conf[a], mode)
 		return conf
 
 	def ok(self, *args):
+		"""
+		check if all passed config values are OK (not None)
+		"""
 		for a in args:
 			if self._conf[a] is None:
 				return False
 		return True
 
-	def set(self, k, v):
+	def set(self, k, v, key='name'):
+		"""
+		set a config value.
+
+		If a dict is passed as value, use some key value instead.
+		(We only support simple values in our config.)
+		"""
 		assert k in self._confs
-		if isinstance(v, dict):
-			v	= v['name']
+		if isinstance(v, dict):		# This is black magic
+			v	= v[key]
 		if self._conf[k]==v: return
 		self._conf[k]	= v
 		self.changed	= True
 
-
 	def ask(self, key, io=None):
+		"""
+		Interactively as a config.
+
+		If sel_CONF is defined for the given config,
+		then fetch possible values from there for easy setup.
+		"""
 		c	= self._confs
 		assert key in c
 		print('{}: {}'.format(*c[key]))
-		print('current value: {}'.format(self._conf[key]))
+		print('current value: {}'.format(self.current(key)))
 		if getattr(self, 'sel_'+key, None):
 			d	= list(getattr(self, 'sel_'+key)(io))
 			if len(d) == 1:
@@ -365,10 +473,18 @@ class Config:
 		return False
 	
 	def save_interactive(self):
+		"""
+		Prompt for save (if changed only)
+		"""
 		if self.changed and confirm('data changed, save'):
 			self.save()
 
 	def setup_interactive(self, io=None):
+		"""
+		A little interactive setup script
+
+		For your convenience.  Because I hate difficult and long commandlines.
+		"""
 		once	= True
 		while 1:
 			self.confs()
@@ -379,7 +495,7 @@ class Config:
 				n.append(a)
 				m	= max(m, len(self._confs[a][0]))
 			for i,a in enumerate(n):
-				print('{n:2}) {c:{w}} {v}'.format(n=i+1, c=self._confs[a][0]+':', v=self._conf[a], w=m+1))
+				print('{n:2}) {c:{w}} {v}'.format(n=i+1, c=self._confs[a][0]+':', v=self.current(a), w=m+1))
 
 			if once:
 				self.save_interactive()
@@ -402,49 +518,59 @@ class Config:
 
 		self.save_interactive()
 
+	def current(self, key):
+		"""
+		Access config such, that it hides values which should be kept hidden
+		"""
+		a	= getattr(self, 'hide_'+key, None)
+		return a() if a else self._conf[key]
+
 	@property
 	def access(self):
+		"""
+		access config as properties
+		"""
 		class acc:
 			def __getitem__(ign, name):
-				return '' if self._conf[name] is None else self._conf[name]
+				c	= self._conf[name]
+				return '' if c is None else getattr(self, 'get_'+name, lambda x: x)(c)
 			def __getattribute__(me, name):
 				return me[name]
 		return acc()
 
 	def __getitem__(self, name):
+		"""
+		access config as dict
+		"""
 		return self._conf[name]
 
 	def __setitem__(self, name, val):
+		"""
+		We do not support setting config this way (yet)
+		But allow store of same value
+		"""
 		assert self._conf[name] == val
 
-	def sel_dc(self, io):
-		if io and self.ok('token'):
-			yield from io.cmd_dc()
-
-	def sel_typ(self, io):
-		if io and self.ok('token', 'dc'):
-			yield from io.server_types(self._conf['dc'])
-
-	def sel_os(self, io):
-		if io and self.ok('token'):
-			yield from io.cmd_images()
-
-	def sel_driver(self, io):
-		for a in self.drivers:
-			yield a
-
-	def sel_ref(self, io):
-		return conf['label']
-
-	def sel_complete(self, io):
-		yield {'name':None, 'complete':'No'}
-		yield {'name':'ok', 'complete':'Yes'}
 
 class Server:
+	"""
+	Hetzner Cloud Server API wrapper
+
+	This combines the Hetzner Cloud API
+	with a local database as a possible
+	interface to some web service.
+
+	This interface is currently not meant
+	(tested) to run for a longer time.
+	"""
+
 	__APPNAME	= _APPNAME
 	__APPVERS	= _VERSION
 
 	def __init__(self, arg0=None, poll=10, **kw):
+		"""
+		Excess arguments are passed to the database driver
+		"""
 		self._conf	= Config(**kw)
 		self.__poll	= poll
 		self.__db	= None
@@ -460,10 +586,16 @@ class Server:
 
 	@property
 	def need(self):
+		"""
+		do we need cmd_setup first?
+		"""
 		return None if self._conf.access.complete and self._conf.access.token else ('please first run: %ssetup' % (self.__arg0,))
 
 	@property
 	def db(self):
+		"""
+		Get our database wrapper
+		"""
 		if self.__db:
 			return self.__db
 		self.__db	= self._conf.driver(**self.__kw)
@@ -472,6 +604,9 @@ class Server:
 
 	@property
 	def cli(self):
+		"""
+		Access the Hetzner Cloud CLIent API
+		"""
 		if self.__cli:
 			return self.__cli
 		if len(self.conf.token)!=64:	OOPS('no token', len(self.conf['token']))
@@ -483,18 +618,33 @@ class Server:
 		return self.__cli
 
 	def servers(self, all=False):
+		"""
+		Get the list of all servers, possibly cached
+		(This class ist not meant to be running for a long time)
+		"""
 		sel	= {} if all else { 'label_selector':self.conf.label+'=1' }
 		return self.cache('servers', lambda: self.cli.servers.get_all(**sel))
 
-	def byname(self, name):
-		sv	= self.cli.servers.get_by_name(name)
-		if self.conf.label not in sv.labels:	OOPS('server not managed:', name)
-		return sv
-
 	def cache(self, what, cb):
+		"""
+		Caching always is a good thing.
+
+		However as we are supposed to be only short living,
+		this perhaps is overkill today and a source of sorrow tomorrow ;)
+		"""
 		if what not in self.__cache:
 			self.__cache[what]	= cb()
 		return self.__cache[what]
+
+	def byname(self, name):
+		"""
+		access a server by name
+
+		For your safety this is limited to just the managed servers
+		"""
+		sv	= self.cli.servers.get_by_name(name)
+		if self.conf.label not in sv.labels:	OOPS('server not managed:', name)
+		return sv
 
 	def cmd_setup(self):
 		"""
@@ -617,6 +767,9 @@ class Server:
 		self.code	= 0
 
 	def server_types(self, dc):
+		"""
+		Get the available server types in a datacenter
+		"""
 		if isinstance(dc, str):
 			dc	= self.cli.datacenters.get_by_name(dc)
 		for a in dc.server_types.available:
@@ -626,6 +779,9 @@ class Server:
 			yield props(a, {'name':'name', 'desc':'description', 'cpus':'cores', 'mem':'memory', 'gb':'disk', 'disk':'storage_type', 'cpu':'cpu_type', 'id':'id'})
 
 	def location(self, a):
+		"""
+		Decode a location
+		"""
 		a	= a.location
 		ret	= {}
 		for i in ['name','description','country','city','latitude','longitude','network_zone','id']:
@@ -633,12 +789,19 @@ class Server:
 		return ret
 
 	def action(self, a):
+		"""
+		Decode an action
+		"""
 		ret	= {}
 		for i in ['command','status','progress','resources']:
 			ret[i]	= getattr(a,i)
 		return ret
 
 	def sync(self, name, sv, **kw):
+		"""
+		Pull Hetzner Cloud status into our local database
+		(not vice versa!)
+		"""
 		old	= self.db.check(name) or {}
 		data	= { 'id':sv.id, 'status':sv.status, 'created':str(sv.created), 'ip4':sv.public_net.ipv4.ip, 'ip6':sv.public_net.ipv6.ip, 'dc':{ 'id':sv.datacenter.id, 'name':sv.datacenter.name, 'desc':sv.datacenter.description, 'loc':self.location(sv.datacenter) } }
 		for a in data:
@@ -662,7 +825,7 @@ class Server:
 	def cmd_create(self, name, dc=None, os=None, typ=None):
 		"""
 		name [dc [os [type]]]:	create a server
-		For the defaults see: config
+		For the defaults see: setup
 		"""
 		if self.need:	yield self.need; return
 		if not name.startswith(self.conf.prefix):	OOPS('server name must begin with', self.conf.prefix)
@@ -670,9 +833,9 @@ class Server:
 		if	self.cli.servers.get_by_name(name):	OOPS('remote known server', name)
 		self.db.set(name, {'stage':'new'})
 		ok	= self.cli.servers.create(name,
-						image=hcloud.images.domain.Image(name=os or self.__os),
-						server_type=hcloud.server_types.domain.ServerType(name=typ or self.__typ),
-						datacenter=hcloud.datacenters.domain.Datacenter(name=dc or self.__dc),
+						image=hcloud.images.domain.Image(name=os or self.conf.os),
+						server_type=hcloud.server_types.domain.ServerType(name=typ or self.conf.typ),
+						datacenter=hcloud.datacenters.domain.Datacenter(name=dc or self.conf.dc),
 						labels={self.conf.label:"1"}
 						)
 		assert ok
@@ -692,7 +855,7 @@ class Server:
 		if self.need:	yield self.need; return
 		con	= self.cli.servers.get_by_name(name).request_console()
 		self.db.mix(name, url=con.wss_url, auth=con.password)
-		yield (self.conf.console if self.conf.console!='-' else '')+con.wss_url+'#'+con.password
+		yield self.conf.console+con.wss_url+'#'+con.password
 		self.code	= 0
 
 	def cmd_help(self, cmd=None):
@@ -713,6 +876,9 @@ class Server:
 		if self.need:	yield self.need
 
 	def cmd(self, *args):
+		"""
+		Run a command, probably from commandline
+		"""
 		if not args:
 			OOPS('missing command, try: help')
 		cmd	= args[0]
@@ -722,6 +888,11 @@ class Server:
 		return getattr(self, 'cmd_'+cmd, wrong)(*args)
 
 def main(arg0,*args):
+	"""
+	Simple variant of a commandline client
+
+	Run a command and present the result
+	"""
 	sv	= Server(arg0=arg0)
 	for a in sv.cmd(*args):
 		print(a)
