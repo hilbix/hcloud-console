@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- based on noVNC example -->
+    <title>VNC Console</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="l.css">
+
+    <!-- Promise polyfill for IE11 -->
+    <script src="vendor/promise.js"></script>
+    <!-- ES2015/ES6 modules polyfill -->
+    <script type="module" src="module-support-test.js"></script>
+    <script src="module-loader-polyfill.js"></script>
+    <!-- actual script modules -->
+    <script type="module" crossorigin="anonymous" src="l.js"></script>
+</head>
+
+<body>
+    <div id="top_bar">
+        <div id="uhu"></div>
+        <div id="status">Loading</div>
+        <div id="sendCtrlAltDelButton">Send CtrlAltDel</div>
+    </div>
+    <div id="screen">
+        <!-- This is where the remote screen will appear -->
+    </div>
+</body>
+</html>
