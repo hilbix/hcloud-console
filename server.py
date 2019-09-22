@@ -34,10 +34,8 @@ def scramble(s, scramble):
 
 	b	= zlib.compress(s.encode(), 1)
 	k	= secrets.token_bytes(len(b))
-	for i,c in enumerate(b):
-		print('b', str(i),str(c))
-	for i,c in enumerate(k):
-		print('k', str(i),str(c))
+#	for i,c in enumerate(b): print('b', str(i),str(c))
+#	for i,c in enumerate(k): print('k', str(i),str(c))
 	o	= bytes([c ^ k[i] for i,c in enumerate(b)])
 	return base64.b64encode(o).decode()+' '+base64.b64encode(k).decode()
 
@@ -253,6 +251,7 @@ class Config:
 		'label':	['VM label',		'Label to mark VM is managed.  Example: managed'],
 		'prefix':	['VM name prefix',	'created VMs get this prefix.  Example: m-'],
 		'driver':	['Database driver',	'Currently there only is: mongo'],
+		'console':	['Console baseurl',	'URL prefix to print for console, - for none'],
 		'complete':	['Complete?',		'leave empty if Setup is not complete'],
 		}
 
@@ -693,7 +692,7 @@ class Server:
 		if self.need:	yield self.need; return
 		con	= self.cli.servers.get_by_name(name).request_console()
 		self.db.mix(name, url=con.wss_url, auth=con.password)
-		yield con.wss_url+'#'+con.password
+		yield (self.conf.console if self.conf.console!='-' else '')+con.wss_url+'#'+con.password
 		self.code	= 0
 
 	def cmd_help(self, cmd=None):
