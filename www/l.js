@@ -50,7 +50,11 @@ var pw =window.location.hash.substr(1);
 debug(url);
 
 // Creating a new RFB object will start a new connection
-rfb = new RFB(document.getElementById('screen'), url, { credentials: { password: pw } });
+rfb = new RFB(document.getElementById('screen'), url,
+  {
+    credentials: { password: pw },
+    wsProtocols: [ 'binary' ],
+  });
 
 // Add listeners to important events from the RFB module
 rfb.addEventListener("connect",  connectedToServer);
