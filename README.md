@@ -38,6 +38,18 @@ To see all possible commands, run
 	./server.py help
 
 
+## Web
+
+There is a folder `www/` which contains the web pages.
+Just make it available somewhere in your web tree.
+
+Be sure to include following in your CSP:
+
+	connect-src 'self' wss://web-console.hetzner.cloud/
+
+> Currently this does not work.  See #1
+
+
 ## FAQ
 
 Install?
