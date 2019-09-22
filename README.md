@@ -47,8 +47,12 @@ Be sure to include following in your CSP:
 
 	connect-src 'self' wss://web-console.hetzner.cloud/
 
-> Currently this does not work.  See
-> [Issue 1](https://github.com/hilbix/hcloud-console/issues/1#issuecomment-533910979)
+To access the VNC console, use following URL:
+
+	l.html?wss://URL#password
+
+You can add something like `https://example.org/l.html?` as `Console baseurl` prefix in `./server.py setup`
+such that the URL printed directly opens the console.
 
 
 ## FAQ
