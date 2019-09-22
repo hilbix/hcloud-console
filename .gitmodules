@@ -1,0 +1,3 @@
+[submodule "hcloud-python"]
+	path = hcloud-python
+	url = https://github.com/hetznercloud/hcloud-python.git
