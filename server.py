@@ -797,13 +797,49 @@ class Server:
 			ret[i]	= getattr(a,i)
 		return ret
 
+	def datacenter(self, dc):
+		return { 'id':dc.id, 'name':dc.name, 'desc':dc.description, 'loc':self.location(dc) }
+
+	def server_type(self, st, dc=None):
+		return { 'id':st.id, 'name':st.name, 'desc':st.description, 'cpus':st.cores, 'mem':st.memory, 'gb':st.disk, 'disk':st.storage_type, 'cpu':st.cpu_type, 'price':self.price(st.prices, dc) }
+
+	def price(self, pr, dc=None):
+		if isinstance(dc, hcloud.datacenters.client.BoundDatacenter):
+			dc	= dc.location.name
+		vals	= []
+		for a in pr:
+			p	= a['price_monthly']['gross']
+			if a['location'] == dc:
+				return p
+			vals.append(p)
+		x	= min(vals)
+		y	= max(vals)
+		return x if x==y else [x,y]
+
+	def image(self, im):
+		return { 'id':im.id, 'name':im.name, 'desc':im.description, 'type':im.type, 'os':im.os_flavor, 'ver':im.os_version, 'fast':im.rapid_deploy, 'stat':im.status, 'labels':im.labels }
+
 	def sync(self, name, sv, **kw):
 		"""
 		Pull Hetzner Cloud status into our local database
 		(not vice versa!)
 		"""
 		old	= self.db.check(name) or {}
-		data	= { 'id':sv.id, 'status':sv.status, 'created':str(sv.created), 'ip4':sv.public_net.ipv4.ip, 'ip6':sv.public_net.ipv6.ip, 'dc':{ 'id':sv.datacenter.id, 'name':sv.datacenter.name, 'desc':sv.datacenter.description, 'loc':self.location(sv.datacenter) } }
+		data	= {
+			'id':sv.id,
+			'status':sv.status,
+			'created':str(sv.created),
+			'ip4':sv.public_net.ipv4.ip,
+			'ip6':sv.public_net.ipv6.ip,
+			'image': self.image(sv.image),
+			'type': self.server_type(sv.server_type, sv.datacenter),
+			'io': { 'in':sv.ingoing_traffic, 'out':sv.outgoing_traffic, 'max':sv.included_traffic },
+			'dc': self.datacenter(sv.datacenter),
+			'rescue': sv.rescue_enabled,
+			'labels': sv.labels,
+			'lock': sv.locked,
+			'prot': sv.protection,
+			}
 		for a in data:
 			old[a]	= data[a]
 		for a in kw:
