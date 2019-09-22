@@ -1,3 +1,6 @@
 [submodule "hcloud-python"]
 	path = hcloud-python
 	url = https://github.com/hetznercloud/hcloud-python.git
+[submodule "noVNC"]
+	path = noVNC
+	url = https://github.com/hilbix/noVNC.git
