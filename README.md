@@ -47,7 +47,8 @@ Be sure to include following in your CSP:
 
 	connect-src 'self' wss://web-console.hetzner.cloud/
 
-> Currently this does not work.  See #1
+> Currently this does not work.  See
+> [Issue 1](https://github.com/hilbix/hcloud-console/issues/1#issuecomment-533910979)
 
 
 ## FAQ
