@@ -59,16 +59,41 @@ such that the URL printed directly opens the console.
 
 Install?
 
-- Not needed.  Runs out of the box
+- Not needed.  Runs out of the box after `./server.py setup` is completed
 
 MongoDB?
 
-- Be sure not to expose your MongoDB to other net than localhost!
-- `sudo apt-get install mongodb` to install MongoDB should be all you need.
-  - This works up for Debian Stretch, but Debian Buster no more includes MongoDB!
-  - Ubuntu 18.04 still supports MongoDB
-- It was just too easy to wrap it into MongoDB.
-- You probably can create a Wrapper to other Databases yourself if you need that.
+- `sudo apt-get install mongodb` to install MongoDB should be all you need on a Debian derivative.
+  - Be sure not to expose your MongoDB to any external network!  You have been warned.
+  - The default install of Debian Stretch does only run MongoDB on localhost.  (I did not test others.)
+  - This here currently assumes MongoDB is available on localhost without passwords.
+  - A networked setup can be certainly be added easily if needed.
+- MongoDB is used only as a Cache and Messaging gateway here
+  - A "sync from scratch" feature is missing, but would be easy to add.
+- MongoDB 3.2 has [tailable cursors](https://docs.mongodb.com/manual/reference/method/cursor.tailable/).
+  - Other databases do not have such a feature, so it must be emulated (i. E. by using ZeroMQ, lockfiles, etc.)
+  - An alternative to this would be [Redis BLPOP](https://redis.io/commands/blpop),
+    so probably a Redis driver would be wise.
+- MongoDB is supported for:
+  - Debian Stretch (oldstable), Version 3.2
+  - Ubuntu 18.04, Version 3.6
+- MongDB is not supported for:
+  - Debian Buster (stable) and later Debian releases
+- Using MongoDB is just too easy, a complete no-brainer.  This is why it is supported first.
+- MongoDB scales very well just in case you need it
+- I can use the MongoDB GitHub repository, as if MongoDB goes away, ever, we need another driver anyway
+
+noVNC?
+
+- As noVNC is crucial for this repository, I use clone of the official repository
+  - So if noVNC goes away, ever, we do not need to change anything
+- If you clone this repository here you can easily make your clone independent of my GitHub user:
+  - `git config --global url.https://github.com/novnc/noVNC.git.insteadOf https://github.com/hilbix/noVNC.git`
+  - Adapt `https://github.com/novnc/noVNC.git` as needed
+- **Therefor you never need to alter `.gitmodules`!**
+  - This way PRs are possible easily and naturally without tweaks.
+- Please note that `insteadOf` is a (mighty) `git` standard feature.
+  - It's white magic.  Get used to it.  Now.
 
 Contact?  Bug?  Contrib?
 
