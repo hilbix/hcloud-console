@@ -55,6 +55,20 @@ You can add something like `https://example.org/l.html?` as `Console baseurl` pr
 such that the URL printed directly opens the console.
 
 
+## Notification
+
+There now is a message queue.  It is in the queue collection (see `setup`).
+
+Note that the size of the message queue is limited and it is not an exact LIFO-Queue.
+So any number of signals can get lost!  It is just meant for notification,
+such that you do not need to implement your own notification/waiting method.
+
+	./server.py wait | while read -r msg; do while read -rt0.01 ignore; do :; done; process_signal; done
+
+Then
+
+	./server.py put 'hello world'		# send a signal.  Just add a message to the collection
+
 ## FAQ
 
 Install?
