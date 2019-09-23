@@ -47,7 +47,7 @@ status("Connecting");
 var url=window.location.search.substr(1);
 var pw =window.location.hash.substr(1);
 
-debug(url);
+//debug(url);
 
 // Creating a new RFB object will start a new connection
 rfb = new RFB(document.getElementById('screen'), url,
