@@ -26,6 +26,7 @@ import os
 import sys
 import copy
 import json
+import time
 import hcloud
 import pymongo
 
@@ -66,6 +67,12 @@ def scramble(s, scramble):
 	return base64.b64encode(o).decode()+' '+base64.b64encode(k).decode()
 
 
+def progress(s):
+	if s:
+		sys.stderr.write(s)
+		sys.stderr.flush()
+
+
 class Mongo:
 	"""
 	Wrapper to MongoDB
@@ -73,16 +80,24 @@ class Mongo:
 
 	@classmethod
 	def conf(self):
-		return {
-			'db':['Mongo DB', 'hetzner'],
-			'table':['Mongo Table', 'vms']
+		return	{
+			'db':	['Mongo DB', 'hetzner'],
+			'data':	['Mongo Data', 'vms'],
+			'queue':['Mongo Queue', 'msg'],
+			'cap':	['Mongo Queue Cap', '100'],
 			}
 
-	def __init__(self, db, table, mongoargs={}):
+	def __init__(self, db, data, queue, cap, mongoargs={}):
 		self.mo	= pymongo.MongoClient(**mongoargs)
 		self.db	= self.mo[db]
-		self.tb	= self.db[table]
-		assert self.tb
+		self.tb	= self.db[data]
+		assert	self.tb
+		try:
+			self.q	= self.db.create_collection(queue, capped=True, size=cap)
+			assert	self.q
+		except pymongo.errors.CollectionInvalid:
+			self.q	= self.db[queue]
+			assert self.q.options()["capped"]
 
 	def set(self, name, data):
 		ob		= copy.copy(data)
@@ -113,6 +128,34 @@ class Mongo:
 		for a in self.tb.find():
 			yield a['name']
 
+	def put(self, msg):
+		res	= self.q.insert_one({'msg':msg})
+		assert res
+		return res
+
+	def pull(self, debug=None):
+		d1	= None if debug is None else debug[0] if len(debug)>0 else 'x'
+		d2	= None if debug is None else debug[1] if len(debug)>1 else '.'
+		d3	= None if debug is None else debug[2] if len(debug)>2 else '_'
+		d4	= None if debug is None else debug[3] if len(debug)>3 else ':'
+		n	= skip=self.q.estimated_document_count()
+		id	= self.put(None).inserted_id	# create a dummy data with a given id
+		# This is a capped 
+		c	= self.q.find(cursor_type=pymongo.CursorType.TAILABLE_AWAIT, skip=n)
+		while c.alive:
+			for a in c:
+				if id:
+					progress(d3)
+					if a['_id']==id:
+						progress(d4)
+						id=None
+					continue
+				progress(d2)
+				if a['msg'] is not None:
+					yield a['msg']
+#			self.q.update_one({'_id':a['_id']},{'$set':{'msg':None}})	# impossible
+			progress(d1)
+			time.sleep(0.1)
 
 def props(o, props):
 	"""
@@ -373,6 +416,9 @@ class Config:
 		for a in self._confs:
 			if a not in self._conf:
 				self._conf[a]	= None
+		for a in self._conf:
+			if self._conf[a] is None:
+				self._conf['complete']	= None
 
 	@property
 	def driver(self):
@@ -894,6 +940,20 @@ class Server:
 		yield self.conf.console+con.wss_url+'#'+con.password
 		self.code	= 0
 
+	def cmd_put(self, message):
+		"""
+		message:	add message to signal queue
+		"""
+		self.db.put(message)
+		yield "ok"
+
+	def cmd_wait(self, *args):
+		"""
+		[debug]:	loop and dump new messages in the signal queue
+		debug is a string which first 3 characters define debugging prints
+		"""
+		yield from self.db.pull(*args)
+
 	def cmd_help(self, cmd=None):
 		"""
 		[cmd]:	print help of command
@@ -932,6 +992,7 @@ def main(arg0,*args):
 	sv	= Server(arg0=arg0)
 	for a in sv.cmd(*args):
 		print(a)
+		sys.stdout.flush()
 	return sv.code
 
 if __name__ == '__main__':
