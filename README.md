@@ -1,6 +1,6 @@
 > This is not complete yet.
 >
-> You can control VMs, but accessing the Console with VNC currently does not work.
+> You can control VMs, but accessing the Console with VNC currently is manual labour.
 
 # Hetzner Cloud Console
 
