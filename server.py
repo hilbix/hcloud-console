@@ -73,19 +73,22 @@ def progress(s):
 		sys.stderr.flush()
 
 
+class MongoConfig:
+	CONF =	{
+		'db':	['Mongo DB', 'hetzner'],
+		'data':	['Mongo Data', 'vms'],
+		'queue':['Mongo Queue', 'msg'],
+		'cap':	['Mongo Queue Cap', '100000'],
+		}
+
 class Mongo:
 	"""
 	Wrapper to MongoDB
 	"""
 
 	@classmethod
-	def conf(self):
-		return	{
-			'db':	['Mongo DB', 'hetzner'],
-			'data':	['Mongo Data', 'vms'],
-			'queue':['Mongo Queue', 'msg'],
-			'cap':	['Mongo Queue Cap', '100'],
-			}
+	def configuration(klass):
+		return MongoConfig
 
 	def __init__(self, db, data, queue, cap, mongoargs={}):
 		self.mo	= pymongo.MongoClient(**mongoargs)
@@ -333,95 +336,72 @@ class Config:
 	Centralized data driven configuration
 	"""
 
-	drivers	= { 'mongo':Mongo }
+	def confs_(self, conf, prefix):
+		"""
+		Parse configuration of a class.
+		This should work with the class, a configuration class or an instance of those.
+		Separate configutation classes are good to separate the configuration properties from the class itself.
 
+		conf.CONF = { 'configname': [ 'title', 'help' ] }	# mandatory
+		conf.SCRAMBLE = [ 'configname' ]			# optional
+		conf_configname(self, 'configname', value) must return some subclass with it's own config
+		- klass.configuration() must return the configuration class (can be klass)
+		get_configname(self, 'configname', value) returns an augmented value
+		sel_configname(self, 'configname', helper) returns a list of possible options using the helper class
+		hide_configname(self, 'configname', value) returns a string to hide this option from displaying in setup
+		"""
+		for a in getattr(conf, 'SCRAMBLE', []):
+			self._hide[prefix+a]	= True
+		for a in conf.CONF:
+			self._confs[prefix+a]	= conf.CONF[a]
+			self._base[prefix+a]	= conf
 
-	CONF =	{
-		'token':	['API-token',		'Create one in project keys at hetzner.cloud'],
-		'dc':		['Datacenter',		'Hetzner Datacenter to create VM in'],
-		'typ':		['Default type',	 'VM type.  Example: cx11'],
-		'os':		['Default OS',		'VM OS.  Example: ubuntu-18.04'],
-		'label':	['VM label',		'Label to mark VM is managed.  Example: managed'],
-		'prefix':	['VM name prefix',	'managed VMs prefix, - for none.  Example: m-'],
-		'driver':	['Database driver',	'Currently there only is: mongo'],
-		'console':	['Console baseurl',	'URL prefix to print for console, - for none'],
-		'complete':	['Complete?',		'leave empty if Setup is not complete'],
-		}
-
-	SCRAMBLED=['token']	# obfuscate these config values
-
-	def hide_token(self):
-		return '[token not shown to keep it secure]'
-
-
-	def get_console(self, c):
-		return '' if c=='-' else c
-
-	def get_prefix(self, c):
-		return '' if c=='-' else c
-
-
-	def sel_dc(self, io):
-		if io and self.ok('token'):
-			yield from io.cmd_dc()
-
-	def sel_typ(self, io):
-		if io and self.ok('token', 'dc'):
-			yield from io.server_types(self._conf['dc'])
-
-	def sel_os(self, io):
-		if io and self.ok('token'):
-			yield from io.cmd_images()
-
-	def sel_driver(self, io):
-		for a in self.drivers:
-			yield a
-
-	def sel_ref(self, io):
-		return conf['label']
-
-	def sel_complete(self, io):
-		yield {'name':None, 'complete':'No'}
-		yield {'name':'ok', 'complete':'Yes'}
-
+			# Do sub-configuration of instantiable classes
+			k	= getattr(conf, 'conf_'+a, None)
+			v	= self._conf.get(a)
+			if k and v is not None:
+				klass			= k(conf, a, v)
+				self._klass[prefix+a]	= klass
+				if klass:
+					# pull in the sub-configuration for instantiation
+					sub			= klass.configuration()
+					if sub:
+						self.confs_(sub, prefix+v+'_')
+					self._sub[prefix+a]	= sub
 
 	def confs(self):
 		"""
 		calculate self._confs to include all sub-configs, too
 		"""
 		self._confs	= {}
-		for a in self.CONF:
-			self._confs[a]	= self.CONF[a]
-			p	= getattr(self, 'conf_'+a, None)
-			if p:
-				p(a)
+		self._base	= {}
+		self._hide	= {}
+		self._klass	= {}
+		self._sub	= {}
+		self.confs_(self._confclass, '')
 
-	def conf_driver(self, i):
+	def __init__(self, confclass, config=None, configenv=_ENVNAME, **kw):
 		"""
-		join driver config with our config
+		Config(self.configuration(), **kw) where self.configuration() returns the config class (can be self)
+
+		This ignores excess keywords, such that you can pass config=/configenv= easily
 		"""
-		if i not in self._conf:		return
-		d	= self._conf[i]
-		if d not in self.drivers:	return
-		for k,v in self.drivers[d].conf().items():
-			self._confs[d+'-'+k]	= v
+		self._confclass	= confclass
+		self._config	= config or os.getenv(configenv) or _DEFCONF
+		self.load()
 
-
-	def __init__(self, config=None, env=_ENVNAME, **kw):
+	def load(self, config=None):
 		self.changed	= False
-		if config is None:
-			config	= os.getenv(env)
-			if config is None:
-				config	= _DEFCONF
-		self.filename	= os.path.expanduser(config)
+		self.filename	= os.path.expanduser(config or self._config)
 		assert self.filename
 		try:
 			with open(self.filename) as f:
-				self._conf	= self.unscramble(json.load(f))
+				self._conf	= json.load(f)
 		except FileNotFoundError:
 			self._conf	= {}
 
 		self.confs()
+
 		for a in self._confs:
 			if a not in self._conf:
 				self._conf[a]	= None
@@ -429,24 +409,7 @@ class Config:
 			if self._conf[a] is None:
 				self._conf['complete']	= None
 
-	@property
-	def driver(self):
-		"""
-		Database driver proxy.
-
-		Can be used like the original driver,
-		but also adds missing keywords from the default config.
-		"""
-		def run(**kw):
-			# Transfer missing keywords from config to the driver
-			d	= self._conf['driver']
-			c	= self.drivers[d]
-			for a in c.conf():
-				if a not in kw:
-					kw[a]	= self._conf[d+'-'+a]
-			# Instantiate the driver
-			return c(**kw)
-		return run
+		self._conf	= self.unscramble(self._conf)
 
 	def save(self):
 		"""
@@ -473,7 +436,7 @@ class Config:
 		"""
 		Do the scrambling/unscrambling
 		"""
-		for a in self.SCRAMBLED:
+		for a in self._hide:
 			if a in conf and conf[a] is not None:
 				conf[a]	= scramble(conf[a], mode)
 		return conf
@@ -501,7 +464,7 @@ class Config:
 		self._conf[k]	= v
 		self.changed	= True
 
-	def ask(self, key, io=None):
+	def ask(self, key, helper=None):
 		"""
 		Interactively as a config.
 
@@ -510,10 +473,13 @@ class Config:
 		"""
 		c	= self._confs
 		assert key in c
+		print('key {}'.format(key))
 		print('{}: {}'.format(*c[key]))
 		print('current value: {}'.format(self.current(key)))
-		if getattr(self, 'sel_'+key, None):
-			d	= list(getattr(self, 'sel_'+key)(io))
+		b	= self._base[key]
+		d	= getattr(b, 'sel_'+key, None)
+		if d:
+			d	= list(d(b, key, helper))
 			if len(d) == 1:
 				print('automatically selected:', d[0])
 				return self.set(key, d[0])
@@ -534,7 +500,7 @@ class Config:
 		if self.changed and confirm('data changed, save'):
 			self.save()
 
-	def setup_interactive(self, io=None):
+	def setup_interactive(self, helper=None):
 		"""
 		A little interactive setup script
 
@@ -560,7 +526,7 @@ class Config:
 					if self._conf[a] is None:
 						had	= True
 						print()
-						if	self.ask(a, io):
+						if	self.ask(a, helper):
 							once	= True
 				if had:
 					continue
@@ -569,7 +535,7 @@ class Config:
 			if ans is None: continue
 			if not ans: break
 
-			self.ask(n[ans-1], io)
+			self.ask(n[ans-1], helper)
 
 		self.save_interactive()
 
@@ -577,8 +543,9 @@ class Config:
 		"""
 		Access config such, that it hides values which should be kept hidden
 		"""
-		a	= getattr(self, 'hide_'+key, None)
-		return a() if a else self._conf[key]
+		b	= self._base[key]
+		a	= getattr(b, 'hide_'+key, None)
+		return a(b, key, self._conf[key]) if a else self._conf[key]
 
 	@property
 	def access(self):
@@ -588,9 +555,40 @@ class Config:
 		class acc:
 			def __getitem__(ign, name):
 				c	= self._conf[name]
-				return '' if c is None else getattr(self, 'get_'+name, lambda x: x)(c)
+				b	= self._base[name]
+				return '' if c is None else getattr(b, 'get_'+name, lambda c,k,v: v)(b, name, c)
 			def __getattribute__(me, name):
 				return me[name]
+		return acc()
+
+	@property
+	def instantiate(self):
+		"""
+		instantiate a subclass
+		"""
+		class acc:
+			def __getitem__(ign, name):
+				def run(**kw):
+					"""
+					Proxy function
+
+					Can be used like the original classname,
+					but also adds missing keywords from the default config.
+					"""
+
+					# Transfer missing keywords from config to the driver
+					d	= self._conf[name]
+					for a in self._sub[name].CONF:
+						if a not in kw:
+							kw[a]	= self._conf[d+'_'+a]
+					# Instantiate the driver
+					return self._klass[name](**kw)
+
+				return run
+
+			def __getattribute__(me, name):
+				return me[name]
+
 		return acc()
 
 	def __getitem__(self, name):
@@ -605,6 +603,68 @@ class Config:
 		But allow store of same value
 		"""
 		assert self._conf[name] == val
+
+
+class ServerConfig(Config):
+
+	driver	= { 'mongo':Mongo }
+
+	CONF =	{
+		'token':	['API-token',		'Create one in project keys at hetzner.cloud'],
+		'dc':		['Datacenter',		'Hetzner Datacenter to create VM in'],
+		'typ':		['Default type',	 'VM type.  Example: cx11'],
+		'os':		['Default OS',		'VM OS.  Example: ubuntu-18.04'],
+		'label':	['VM label',		'Label to mark VM is managed.  Example: managed'],
+		'prefix':	['VM name prefix',	'managed VMs prefix, - for none.  Example: m-'],
+		'driver':	['Database driver',	'Currently there only is: mongo'],
+		'console':	['Console baseurl',	'URL prefix to print for console, - for none'],
+		'complete':	['Complete?',		'leave empty if Setup is not complete'],
+		}
+
+	SCRAMBLE=['token']	# obfuscate these config values
+
+	def dash_for_nothing(self, key, c):
+		return '' if c=='-' else c
+
+	def hidden(self, key, value):
+		return '['+value+' not shown to keep it secure]'
+
+	def conf_driver(self, key, value):
+		"""
+		get the driver config
+		"""
+		return getattr(self, key).get(value)
+
+	hide_token	= hidden
+
+	def get_driver(self, key, c):
+		return self.driver.get(c)
+
+	get_console	= dash_for_nothing
+	get_prefix	= dash_for_nothing
+
+	def sel_dc(self, key, helper):
+		if helper and self.ok('token'):
+			yield from helper.cmd_dc()
+
+	def sel_typ(self, key, helper):
+		if helper and self.ok('token', 'dc'):
+			yield from helper.server_types(self._conf['dc'])
+
+	def sel_os(self, key, helper):
+		if helper and self.ok('token'):
+			yield from helper.cmd_images()
+
+	def sel_driver(self, key, helper):
+		for a in self.driver:
+			yield a
+
+	def sel_ref(self, key, helper):
+		return conf['label']
+
+	def sel_complete(self, key, helper):
+		yield {'name':None, key:'No'}
+		yield {'name':'ok', key:'Yes'}
 
 
 class Server:
@@ -626,7 +686,7 @@ class Server:
 		"""
 		Excess arguments are passed to the database driver
 		"""
-		self._conf	= Config(**kw)
+		self._conf	= Config(ServerConfig, **kw)
 		self.__poll	= poll
 		self.__db	= None
 		self.__cli	= None
@@ -653,7 +713,7 @@ class Server:
 		"""
 		if self.__db:
 			return self.__db
-		self.__db	= self._conf.driver(**self.__kw)
+		self.__db	= self._conf.instantiate.driver(**self.__kw)
 		assert self.__db
 		return self.__db
 
