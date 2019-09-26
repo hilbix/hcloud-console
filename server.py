@@ -441,9 +441,9 @@ class Config:
 				conf[a]	= scramble(conf[a], mode)
 		return conf
 
-	def ok(self, *args):
+	def has(self, *args):
 		"""
-		check if all passed config values are OK (not None)
+		check if given configs are present (not None)
 		"""
 		for a in args:
 			if self._conf[a] is None:
@@ -479,7 +479,7 @@ class Config:
 		b	= self._base[key]
 		d	= getattr(b, 'sel_'+key, None)
 		if d:
-			d	= list(d(b, key, helper))
+			d	= list(d(b, key, helper, self))
 			if len(d) == 1:
 				print('automatically selected:', d[0])
 				return self.set(key, d[0])
@@ -605,7 +605,7 @@ class Config:
 		assert self._conf[name] == val
 
 
-class ServerConfig(Config):
+class ServerConfig:
 
 	driver	= { 'mongo':Mongo }
 
@@ -643,26 +643,23 @@ class ServerConfig(Config):
 	get_console	= dash_for_nothing
 	get_prefix	= dash_for_nothing
 
-	def sel_dc(self, key, helper):
-		if helper and self.ok('token'):
+	def sel_dc(self, key, helper, conf):
+		if helper and conf.has('token'):
 			yield from helper.cmd_dc()
 
-	def sel_typ(self, key, helper):
-		if helper and self.ok('token', 'dc'):
-			yield from helper.server_types(self._conf['dc'])
+	def sel_typ(self, key, helper, conf):
+		if helper and conf.has('token', 'dc'):
+			yield from helper.server_types(conf.access.dc)
 
-	def sel_os(self, key, helper):
-		if helper and self.ok('token'):
+	def sel_os(self, key, helper, conf):
+		if helper and conf.has('token'):
 			yield from helper.cmd_images()
 
-	def sel_driver(self, key, helper):
+	def sel_driver(self, key, helper, conf):
 		for a in self.driver:
 			yield a
 
-	def sel_ref(self, key, helper):
-		return conf['label']
-
-	def sel_complete(self, key, helper):
+	def sel_complete(self, key, helper, conf):
 		yield {'name':None, key:'No'}
 		yield {'name':'ok', key:'Yes'}
 
@@ -758,6 +755,7 @@ class Server:
 		For your safety this is limited to just the managed servers
 		"""
 		sv	= self.cli.servers.get_by_name(name)
+		if sv is None:				OOPS('server missing on remote:', name)
 		if self.conf.label not in sv.labels:	OOPS('server not managed:', name)
 		return sv
 
@@ -773,7 +771,7 @@ class Server:
 		"""
 		:	list all servers
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 
 		sv	= {}
 		for a in self.servers(all=True):
@@ -796,7 +794,7 @@ class Server:
 		"""
 		:	list available images
 		"""
-		if not self.conf.token:	yield self.need; return
+		if	not self.conf.token:	yield self.need; return
 		for a in self.cli.images.get_all(type='system', sort='name'):
 			yield { 'name':a.name, 'desc':a.description, 'os':a.os_flavor, 'v':a.os_version, 'id':a.id }
 		self.code	= 0
@@ -805,7 +803,7 @@ class Server:
 		"""
 		:	list available datacenters
 		"""
-		if not self.conf.token:	yield self.need; return
+		if	not self.conf.token:	yield self.need; return
 		for a in self.cli.datacenters.get_all():
 			yield { 'name':a.name, 'desc':a.description, 'id':a.id }
 #			yield { 'name':a.name, 'desc':a.description, 'loc':self.location(a), 'types':self.server_types(a), 'id':a.id }
@@ -815,7 +813,7 @@ class Server:
 		"""
 		name:	unconditionally reboot the given server
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		self.byname(name).reboot()
 		yield "ok"
 		self.code	= 0
@@ -824,7 +822,7 @@ class Server:
 		"""
 		name:	unconditionally stop the given server
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		self.byname(name).power_off()
 		yield "ok"
 		self.code	= 0
@@ -833,7 +831,7 @@ class Server:
 		"""
 		name:	try to stop the given server
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		self.byname(name).shutdown()
 		yield "ok"
 		self.code	= 0
@@ -842,7 +840,7 @@ class Server:
 		"""
 		name:	start the given server
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		self.byname(name).power_on()
 		yield "ok"
 		self.code	= 0
@@ -851,7 +849,7 @@ class Server:
 		"""
 		name:	kill the given server
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		self.byname(name).delete()
 		self.db.kill(name)
 		yield "ok"
@@ -861,7 +859,7 @@ class Server:
 		"""
 		name:	set tag on given server name
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		sv	= self.cli.servers.get_by_name(name)
 		lb	= copy.copy(sv.labels)
 		lb[self.conf.label]="1"
@@ -873,7 +871,7 @@ class Server:
 		"""
 		name:	delete tag on given server name
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		sv	= self.cli.servers.get_by_name(name)
 		lb	= copy.copy(sv.labels)
 		del lb[self.conf.label]
@@ -966,20 +964,23 @@ class Server:
 		[name]:	sync local from remote data
 			Without name: sync all known
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		for a in [name] if name else self.db.list():
-			sv	= self.byname(a)
-			self.sync(a, sv)
-			yield a
+			sv	= self.cli.servers.get_by_name(a)
+			if sv is None:
+				yield (a, 'missing')
+			else:
+				self.sync(a, sv)
+				yield a
 		self.code	= 0
 
-	def cmd_create(self, name, dc=None, os=None, typ=None):
+	def cmd_create(self, name, typ=None, os=None, dc=None):
 		"""
-		name [dc [os [type]]]:	create a server
+		name [type [os [dc]]]:	create a server
 		For the defaults see: setup
 		"""
-		if self.need:	yield self.need; return
-		if not name.startswith(self.conf.prefix):	OOPS('server name must begin with', self.conf.prefix)
+		if	self.need:	yield self.need; return
+		if	not name.startswith(self.conf.prefix):	OOPS('server name must begin with', self.conf.prefix)
 		if	self.db.check(name):			OOPS('known server', name)
 		if	self.cli.servers.get_by_name(name):	OOPS('remote known server', name)
 		self.db.set(name, {'stage':'new'})
@@ -1003,15 +1004,17 @@ class Server:
 		"""
 		name:	update the console information
 		"""
-		if self.need:	yield self.need; return
+		if	self.need:	yield self.need; return
 		con	= self.cli.servers.get_by_name(name).request_console()
 		self.db.mix(name, url=con.wss_url, auth=con.password)
 		yield self.conf.console+con.wss_url+'#'+con.password
 		self.code	= 0
 
-	def cmd_put(self, message):
+	def cmd_notify(self, message):
 		"""
-		message:	add message to signal queue
+		message:	notify waiter with a message
+		Note that messages are unreliable in the sense,
+		that they might not reach any waiter
 		"""
 		self.db.put(message)
 		yield "ok"
@@ -1039,7 +1042,7 @@ class Server:
 			if a[0:4]=='cmd_':
 				c	= getattr(self, a).__doc__.strip().split('\n',2)
 				yield (a[4:]+' '+c[0])
-		if self.need:	yield self.need
+		if	self.need:	yield self.need
 
 	def cmd(self, *args):
 		"""
