@@ -93,7 +93,8 @@ class Mongo:
 		self.tb	= self.db[data]
 		assert	self.tb
 		try:
-			self.q	= self.db.create_collection(queue, capped=True, size=cap)
+			assert int(cap)>9999, 'Mongo Queue Cap must be at least 10000, please run setup'
+			self.q	= self.db.create_collection(queue, capped=True, size=int(cap))
 			assert	self.q
 		except pymongo.errors.CollectionInvalid:
 			self.q	= self.db[queue]
@@ -134,26 +135,34 @@ class Mongo:
 		return res
 
 	def pull(self, debug=None):
-		d1	= None if debug is None else debug[0] if len(debug)>0 else 'x'
-		d2	= None if debug is None else debug[1] if len(debug)>1 else '.'
+		d1	= None if debug is None else debug[0] if len(debug)>0 else '.'
+		d2	= None if debug is None else debug[1] if len(debug)>1 else 'x'
 		d3	= None if debug is None else debug[2] if len(debug)>2 else '_'
 		d4	= None if debug is None else debug[3] if len(debug)>3 else ':'
-		n	= skip=self.q.estimated_document_count()
-		id	= self.put(None).inserted_id	# create a dummy data with a given id
-		# This is a capped 
-		c	= self.q.find(cursor_type=pymongo.CursorType.TAILABLE_AWAIT, skip=n)
+		d5	= None if debug is None else debug[4] if len(debug)>4 else '-'
+		n	= self.q.estimated_document_count()
+		if n:	n-=1
+		id	= self.put(None).inserted_id	# create a dummy data with a given id for TAIL to work
+		# self.q must be a capped collection
+		c	= self.q.find(cursor_type=pymongo.CursorType.TAILABLE_AWAIT)
 		while c.alive:
 			for a in c:
 				if id:
-					progress(d3)
-					if a['_id']==id:
-						progress(d4)
-						id=None
+					if n and a['_id']!=id:
+						progress(d5)
+						# only skip past n entries
+						n	-= 1
+						continue
+					progress(d4)
+					id=None
 					continue
-				progress(d2)
-				if a['msg'] is not None:
+				if a['msg'] is None:
+					progress(d3)
+				else:
+					progress(d2)
 					yield a['msg']
 #			self.q.update_one({'_id':a['_id']},{'$set':{'msg':None}})	# impossible
+			id=None
 			progress(d1)
 			time.sleep(0.1)
 
@@ -950,7 +959,8 @@ class Server:
 	def cmd_wait(self, *args):
 		"""
 		[debug]:	loop and dump new messages in the signal queue
-		debug is a string which first 3 characters define debugging prints
+		debug is a string which first 5 characters are used for progress output to stderr
+		give empty to use standard progress, default: no progress
 		"""
 		yield from self.db.pull(*args)
 
