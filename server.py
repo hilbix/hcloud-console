@@ -968,6 +968,10 @@ class Server:
 		for a in [name] if name else self.db.list():
 			sv	= self.cli.servers.get_by_name(a)
 			if sv is None:
+				if name==a:
+					self.db.kill(a)
+					yield (a, 'removed')
+					continue
 				yield (a, 'missing')
 			else:
 				self.sync(a, sv)
