@@ -618,7 +618,7 @@ class ServerConfig:
 		'prefix':	['VM name prefix',	'managed VMs prefix, - for none.  Example: m-'],
 		'driver':	['Database driver',	'Currently there only is: mongo'],
 		'console':	['Console baseurl',	'URL prefix to print for console, - for none'],
-		'complete':	['Complete?',		'leave empty if Setup is not complete'],
+		'complete':	['Setup complete',	'leave empty if Setup is not complete'],
 		}
 
 	SCRAMBLE=['token']	# obfuscate these config values
@@ -627,7 +627,7 @@ class ServerConfig:
 		return '' if c=='-' else c
 
 	def hidden(self, key, value):
-		return '['+value+' not shown to keep it secure]'
+		return '['+key+' not shown to keep it secure]'
 
 	def conf_driver(self, key, value):
 		"""
@@ -701,7 +701,7 @@ class Server:
 		"""
 		do we need cmd_setup first?
 		"""
-		return None if self._conf.access.complete and self._conf.access.token else ('please first run: %ssetup' % (self.__arg0,))
+		return None if self._conf.access.complete and self._conf.access.token else ('please first run: %s setup' % (self.__arg0,))
 
 	@property
 	def db(self):
