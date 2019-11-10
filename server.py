@@ -75,10 +75,11 @@ def progress(s):
 
 class MongoConfig:
 	CONF =	{
-		'db':	['Mongo DB', 'hetzner'],
-		'data':	['Mongo Data', 'vms'],
-		'queue':['Mongo Queue', 'msg'],
-		'cap':	['Mongo Queue Cap', '100000'],
+		'db':	['Mongo DB',		'hetzner'],
+		'data':	['Mongo Data',		'vms'],
+		'cmd':	['Mongo Commands',	'cmd'],
+		'queue':['Mongo Queue',		'msg'],
+		'cap':	['Mongo Queue Bytes',	'100000'],
 		}
 
 class Mongo:
@@ -90,11 +91,13 @@ class Mongo:
 	def configuration(klass):
 		return MongoConfig
 
-	def __init__(self, db, data, queue, cap, mongoargs={}):
+	def __init__(self, db, data, cmd, queue, cap, mongoargs={}):
 		self.mo	= pymongo.MongoClient(**mongoargs)
 		self.db	= self.mo[db]
 		self.tb	= self.db[data]
 		assert	self.tb
+		self.cmd= self.db[cmd]
+		assert	self.cmd
 		try:
 			assert int(cap)>9999, 'Mongo Queue Cap must be at least 10000, please run setup'
 			self.q	= self.db.create_collection(queue, capped=True, size=int(cap))
