@@ -140,7 +140,7 @@ class Mongo:
 		assert res
 		return res
 
-	def pull(self, debug=None):
+	def wait(self, debug=None):
 		d1	= None if debug is None else debug[0] if len(debug)>0 else '.'
 		d2	= None if debug is None else debug[1] if len(debug)>1 else 'x'
 		d3	= None if debug is None else debug[2] if len(debug)>2 else '_'
@@ -171,6 +171,20 @@ class Mongo:
 			id=None
 			progress(d1)
 			time.sleep(0.1)
+
+	def push(self, cmd, data):
+		res	= self.cmd.insert_one({'cmd':cmd, 'for':data})
+		assert res
+		self.put('cmd')		# signal there is some cmd
+		return res
+
+	def pull(self):
+		res	= self.cmd.find_one()
+		if not res:
+			return None
+		assert res
+		self.cmd.delete_one({'_id':res['_id']})
+		return (res['cmd'], res['for'])
 
 def props(o, props):
 	"""
@@ -1013,7 +1027,7 @@ class Server:
 		"""
 		if	self.need:	yield self.need; return
 		con	= self.cli.servers.get_by_name(name).request_console()
-		self.db.mix(name, url=con.wss_url, auth=con.password)
+		self.db.mix(name, url=con.wss_url, auth=con.password, ts=time.time())
 		yield self.conf.console+con.wss_url+'#'+con.password
 		self.code	= 0
 
@@ -1025,14 +1039,49 @@ class Server:
 		"""
 		self.db.put(message)
 		yield "ok"
+		self.code	= 0
 
 	def cmd_wait(self, *args):
 		"""
-		[debug]:	loop and dump new messages in the signal queue
+		[debug]:	loop (forever) and dump new messages in the signal queue
 		debug is a string which first 5 characters are used for progress output to stderr
 		give empty to use standard progress, default: no progress
 		"""
-		yield from self.db.pull(*args)
+		yield from self.db.wait(*args)
+
+	def cmd_push(self, cmd, arg):
+		"""
+		cmd arg:	push something into the cmd queue
+		"""
+		self.db.push(cmd, arg)
+		yield "ok"
+		self.code	= 0
+
+	def cmd_pull(self):
+		"""
+		return what was pushed by "push"
+		returns false in case there was no command
+		Use "next" to wait for commands, or "wait" to do this programatically
+		"""
+		ret	= self.db.pull()
+		if ret is not None:
+			yield ' '.join(ret)
+			self.code	= 0
+
+	def cmd_next(self, *args):
+		"""
+		"wait" then "pull" without race
+		"""
+		it	= None
+		while 1:
+			ret	= self.db.pull()
+			if ret is not None:
+				break
+			if it is None:
+				it	= self.db.wait(*args)
+			next(it)
+		yield ' '.join(ret)
+		self.code	= 0
 
 	def cmd_help(self, cmd=None):
 		"""
