@@ -22,11 +22,34 @@ o test -x "$SCRIPT"
 
 o "$SCRIPT" list
 
+cmd()
+{
+echo "cmd: $1 $2"
+"$SCRIPT" "$1" "$2"
+}
+
 # Note: This restarts automatically if edited
 maintainance()
 {
 test ".$MYSTATE" = ".$(stat -- "$ME")" || OOPS I have changed, CU
-o "$SCRIPT" sync
+have=false
+while	cmd="$("$SCRIPT" pull)"
+do
+	arg="${cmd#* }"
+	case "$cmd" in
+	('sync '*)	cmd sync "$arg";;
+	('start '*)	cmd start "$arg";;
+	('stop '*)	cmd stop "$arg";;
+	('console '*)	cmd console "$arg";;
+	('new '*)	cmd create "$arg";;
+	('kill '*)	cmd kill "$arg";;
+	('off '*)	cmd force "$arg";;
+	('reset '*)	cmd reset "$arg";;
+	(*)		printf 'UNKNOWN: %q\n' "$cmd"; continue;;
+	esac
+	have=:
+done
+$have || o "$SCRIPT" sync
 }
 
 # Do the maintainance each "$1" seconds or when events arrive
