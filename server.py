@@ -175,7 +175,6 @@ class Mongo:
 	def push(self, cmd, data):
 		res	= self.cmd.insert_one({'cmd':cmd, 'for':data})
 		assert res
-		self.put('cmd')		# signal there is some cmd
 		return res
 
 	def pull(self):
@@ -1054,6 +1053,7 @@ class Server:
 		cmd arg:	push something into the cmd queue
 		"""
 		self.db.push(cmd, arg)
+		self.db.put('cmd')		# signal 'pull' that there is some cmd
 		yield "ok"
 		self.code	= 0
 
