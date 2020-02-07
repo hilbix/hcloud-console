@@ -1,4 +1,10 @@
 #!/bin/bash
+#
+# When this script terminates unconditionally,
+# be sure to close the STDOUT/STDERR which were passed to this script,
+# else the background process might not vanish!
+#
+# The "autostart" mechanism of https://github.com/hilbix/ptybuffer ensures this
 
 STDOUT() { local e=$?; printf '%q' "$1"; [ 1 -ge "$#" ] || printf ' %q' "${@:2}"; printf '\n'; return $e; }
 STDERR() { STDOUT "$@" >&2; }
@@ -31,7 +37,8 @@ echo "cmd: $1 $2"
 # Note: This restarts automatically if edited
 maintainance()
 {
-test ".$MYSTATE" = ".$(stat -- "$ME")" || OOPS I have changed, CU
+test ".$MYSTATE" = ".$(stat -- "$ME")" || OOPS I have changed
+[ -n "$COPROC_PID" ] || OOPS background process vanished
 have=false
 while	cmd="$("$SCRIPT" pull)"
 do
@@ -52,10 +59,17 @@ done
 $have || o "$SCRIPT" sync
 }
 
-# Do the maintainance each "$1" seconds or when events arrive
+cons()
+{
+# Be sure to use debugging here,
+# which makes $SCRIPT to terminate when STDERR goes away
+exec python3 "$SCRIPT" wait ''
+}
+
+# Do the maintainance each "$1" seconds (default: 20) or when events arrive
 run()
 {
-coproc exec python3 "$SCRIPT" wait ''
+coproc cons
 trap 'x kill $COPROC_PID' 0
 
 while	while read -ru${COPROC[0]} -t.001; do :; done
