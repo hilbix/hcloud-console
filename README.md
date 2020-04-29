@@ -160,7 +160,7 @@ Then send a signal:
 Note that the contents of the signal can be ignored, as it is just arbitrary and if too many
 signals are delivered some might get lost.  To have some reliable communication, you can do:
 
-	while cmd="$(./server.py next)"; do process_cmd "$get"; done
+	while cmd="$(./server.py next)"; do process_cmd "$cmd"; done
 	# Note that this loops until something catastropically fails, like MongoDB is stopped.
 
 and then
@@ -172,7 +172,7 @@ You can implement the complete loop as follows (this is nearly what `autostart/h
 	SERVICE_CYCLE=100;	# seconds
 	./server.py wait |
 	while	while read -rt0.01 ignore; do :; done;
-		while get="$(./server.py pull)"; do process_cmd "$cmd"; done;
+		while cmd="$(./server.py pull)"; do process_cmd "$cmd"; done;
 		read -rt "$SERVICE_CYCLE" msg || service_cycle_done_when_idle;
 	do
 		service_cycle_done_always;
